@@ -1,0 +1,484 @@
+Form1
+Imports System.Data.SqlClient
+Public Class Form1
+
+    ' Your connection string to the database
+    Dim connectionString As String = "Data Source=DESKTOP-HILRCRM\SQLEXPRESS;Initial Catalog=loginsystem;Integrated Security=True;Encrypt=False;"
+
+    Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+        ' Get entered username and password
+        Dim enteredUsername As String = TextBox1.Text
+        Dim enteredPassword As String = TextBox2.Text
+
+        ' Validate credentials
+        If ValidateCredentials(enteredUsername, enteredPassword) Then
+            ' Successful login, open the main form with the user ID
+            Dim authenticatedUserID As Integer = GetUserIDByUsername(enteredUsername)
+            Dim mainForm As New MainForm(authenticatedUserID)
+            mainForm.Show()
+            Me.Hide()
+        ElseIf TextBox1.Text = "" Then
+            MessageBox.Show("Enter username.")
+        ElseIf TextBox2.Text = "" Then
+            MessageBox.Show("Enter password.")
+        Else
+            MessageBox.Show("Invalid username or password. Please try again.")
+        End If
+    End Sub
+
+    Private Function ValidateCredentials(username As String, password As String) As Boolean
+        ' Query the database to check if the entered credentials are valid
+        Using connection As New SqlConnection(connectionString)
+            connection.Open()
+            Dim query As String = "SELECT PasswordHash FROM Users WHERE Username = @Username"
+            Using command As New SqlCommand(query, connection)
+                command.Parameters.AddWithValue("@Username", username)
+                Dim storedHashedPassword As Object = command.ExecuteScalar()
+
+                If storedHashedPassword IsNot Nothing AndAlso Not DBNull.Value.Equals(storedHashedPassword) Then
+                    ' Verify entered password with stored hashed password
+                    Return BCrypt.Net.BCrypt.Verify(password, storedHashedPassword.ToString())
+                Else
+                    Return False ' User not found or password hash is null/empty
+                End If
+            End Using
+        End Using
+    End Function
+
+    Private Function GetUserIDByUsername(username As String) As Integer
+        ' Retrieve the user ID based on the username
+        Using connection As New SqlConnection(connectionString)
+            connection.Open()
+            Dim query As String = "SELECT UserID FROM Users WHERE Username = @Username"
+            Using command As New SqlCommand(query, connection)
+                command.Parameters.AddWithValue("@Username", username)
+                Dim userID As Object = command.ExecuteScalar()
+
+                If userID IsNot Nothing AndAlso Not DBNull.Value.Equals(userID) Then
+                    Return Convert.ToInt32(userID)
+                Else
+                    Return -1 ' User not found or user ID is null/empty
+                End If
+            End Using
+        End Using
+    End Function
+
+    ' Checkbox1 is for show/hide password
+    Private Sub CheckBox1_CheckedChanged(sender As Object, e As EventArgs) Handles CheckBox1.CheckedChanged
+        TextBox2.UseSystemPasswordChar = Not CheckBox1.Checked
+    End Sub
+
+    Private Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
+        Dim signUpForm As New RegistrationForm()
+        signUpForm.Show()
+        Me.Hide()
+    End Sub
+End Class
+
+Form2 
+
+Imports System.Data.SqlClient
+Imports BCrypt.Net
+
+Public Class RegistrationForm
+
+    ' Your connection string to the database
+    Dim connectionString As String = "Data Source=DESKTOP-HILRCRM\SQLEXPRESS;Initial Catalog=loginsystem;Integrated Security=True;Encrypt=False;"
+
+    Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+        ' Get user inputs
+        Dim username As String = TextBox1.Text
+        Dim password As String = TextBox2.Text
+        Dim confirmPassword As String = TextBox3.Text
+
+        ' Validate inputs
+        If String.IsNullOrWhiteSpace(username) OrElse String.IsNullOrWhiteSpace(password) OrElse String.IsNullOrWhiteSpace(confirmPassword) Then
+            MessageBox.Show("Please fill in all fields.")
+            Return
+        End If
+
+        If Not password.Equals(confirmPassword) Then
+            MessageBox.Show("Passwords do not match. Please enter them again.")
+            TextBox2.Clear()
+            TextBox3.Clear()
+            Return
+        End If
+
+        ' Hash the password before storing it
+        Dim hashedPassword As String = HashPassword(password)
+
+        ' Save the user to the database (you need to implement this part)
+        If SaveUserToDatabase(username, hashedPassword) Then
+            MessageBox.Show("Registration successful!")
+            ' Optionally, you might want to navigate back to the login form
+            Dim loginForm As New Form1()
+            loginForm.Show()
+            Me.Hide() ' Optionally, hide the registration form
+        Else
+            MessageBox.Show("Registration failed. Please try again.")
+        End If
+    End Sub
+
+    Private Function HashPassword(password As String) As String
+        ' Generate a salt and hash the password
+        Dim salt As String = BCrypt.Net.BCrypt.GenerateSalt(12) ' You can adjust the cost factor as needed
+        Dim hashedPassword As String = BCrypt.Net.BCrypt.HashPassword(password, salt)
+        Return hashedPassword
+    End Function
+
+
+    Private Function SaveUserToDatabase(username As String, hashedPassword As String) As Boolean
+        ' Implement logic to save the user to the database
+        ' For simplicity, this is just a placeholder
+        Try
+            Using connection As New SqlConnection(connectionString)
+                connection.Open()
+                Dim query As String = "INSERT INTO Users (Username, PasswordHash) VALUES (@Username, @PasswordHash)"
+                Using command As New SqlCommand(query, connection)
+                    command.Parameters.AddWithValue("@Username", username)
+                    command.Parameters.AddWithValue("@PasswordHash", hashedPassword)
+                    command.ExecuteNonQuery()
+                End Using
+            End Using
+            Return True
+        Catch ex As Exception
+            ' Handle any exception (e.g., duplicate username)
+            Return False
+        End Try
+    End Function
+
+    Private Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
+        Me.Close()
+    End Sub
+End Class
+ 
+Form 3
+
+Imports System.Data.SqlClient
+
+Public Class MainForm
+    Dim FuncCls As New CommonFunctionsCls()
+    Private ReadOnly userID As Integer
+
+    ' Constructor to receive the user ID from the login form
+    Public Sub New(authenticatedUserID As Integer)
+        InitializeComponent()
+        userID = authenticatedUserID
+    End Sub
+
+    ' Find operation when Button1 is clicked
+    Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+        ' Assuming you have a TextBox to input the account name
+        If Not String.IsNullOrWhiteSpace(TextBox1.Text) Then
+            ' Retrieve the entered account name
+            Dim enteredAccountName As String = TextBox1.Text.Trim()
+
+            ' Query the database to get details of the entered account based on the user ID and account name
+            Dim accountDetails As AccountDetails = GetAccountDetails(userID, enteredAccountName)
+
+            If accountDetails IsNot Nothing Then
+                ' Display the details in respective TextBoxes
+                TextBox2.Text = accountDetails.Website
+                TextBox3.Text = accountDetails.Username
+                ' Decrypt the password before displaying it
+                TextBox4.Text = FuncCls.DecryptPassword(accountDetails.PasswordHash)
+                TextBox5.Text = accountDetails.Note
+            Else
+                MessageBox.Show("Account not found.")
+            End If
+        Else
+            MessageBox.Show("Please enter an account name.")
+        End If
+    End Sub
+
+    ' Function to get account details from the database
+    Private Function GetAccountDetails(userID As Integer, accountName As String) As AccountDetails
+        ' Replace this with your actual data retrieval logic
+        Dim connectionString As String = "Data Source=DESKTOP-HILRCRM\SQLEXPRESS;Initial Catalog=loginsystem;Integrated Security=True;Encrypt=False"
+
+        ' Use a try-catch block to handle any potential exceptions
+        Try
+            Using connection As New SqlConnection(connectionString)
+                connection.Open()
+
+                ' The query to retrieve account details based on user ID and account name
+                Dim query As String = "SELECT AccountName,Website, Username, PasswordHash, Note " &
+                                      "FROM Accounts " &
+                                      "WHERE UserID = @UserID AND AccountName = @AccountName"
+
+                Using command As New SqlCommand(query, connection)
+                    ' Use parameters to prevent SQL injection
+                    command.Parameters.AddWithValue("@UserID", userID)
+                    command.Parameters.AddWithValue("@AccountName", accountName)
+
+                    ' Execute the query and read the results
+                    Using reader As SqlDataReader = command.ExecuteReader()
+                        If reader.Read() Then
+                            ' Return the account details from the database
+                            Return New AccountDetails With {
+                                .AccountName = reader("AccountName").ToString(),
+                                .Website = reader("Website").ToString(),
+                                .Username = reader("Username").ToString(),
+                                .PasswordHash = reader("PasswordHash").ToString(),
+                                .Note = reader("Note").ToString(),
+                                .Password = "********" ' Displaying a placeholder for the password
+                            }
+                        Else
+                            ' Account not found
+                            Return Nothing
+                        End If
+                    End Using
+                End Using
+            End Using
+        Catch ex As Exception
+            ' Handle the exception (log it, show an error message, etc.)
+            MessageBox.Show($"Error retrieving account details. {ex.Message}")
+            Return Nothing
+        End Try
+    End Function
+
+    Private Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
+        ' Open the AddForm with the user ID
+        Dim addForm As New Addform(userID)
+        addForm.ShowDialog()
+
+        ' Reload user accounts after adding a new account (if needed)
+    End Sub
+
+    Private Sub CheckBox1_CheckedChanged(sender As Object, e As EventArgs) Handles CheckBox1.CheckedChanged
+        TextBox4.UseSystemPasswordChar = Not CheckBox1.Checked
+    End Sub
+
+    Private Sub Button3_Click(sender As Object, e As EventArgs) Handles Button3.Click
+
+        If Not String.IsNullOrWhiteSpace(TextBox1.Text) Then
+            ' Retrieve the entered account name
+            Dim enteredAccountName As String = TextBox1.Text.Trim()
+
+            ' Query the database to get details of the entered account based on the user ID and account name
+            Dim accountDetails As AccountDetails = GetAccountDetails(userID, enteredAccountName)
+
+            If accountDetails IsNot Nothing Then
+                ' Open the EditForm with the user ID and account details
+                Dim editForm As New Editform(userID, accountDetails)
+                editForm.ShowDialog()
+            Else
+                MessageBox.Show("Account not found.")
+            End If
+        Else
+            MessageBox.Show("Please enter an account name.")
+        End If
+    End Sub
+
+
+    ' ... other code for MainForm ...
+
+End Class
+
+' Class to hold account details
+Public Class AccountDetails
+    Public Property AccountID As Integer
+    Public Property AccountName As String
+    Public Property Website As String
+    Public Property Username As String
+    Public Property PasswordHash As String ' Ensure this property is present
+    Public Property Note As String
+    Public Property Password As String
+End Class
+
+form 4
+
+Imports System.Data.SqlClient
+Imports System.IO
+Imports System.Security.Cryptography
+Imports System.Text
+
+Public Class AddForm
+    Dim FuncCls As New CommonFunctionsCls()
+    Private ReadOnly userID As Integer
+
+    ' Constructor to receive the user ID from the main form
+    Public Sub New(authenticatedUserID As Integer)
+        InitializeComponent()
+        userID = authenticatedUserID
+    End Sub
+
+    ' Add operation when Button1 is clicked
+    Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+        ' Validate that required fields are not empty
+        If Not String.IsNullOrWhiteSpace(TextBox1.Text) Then
+            ' Get values from the form controls
+            Dim accountName As String = TextBox1.Text
+            Dim website As String = TextBox2.Text
+            Dim username As String = TextBox3.Text
+            Dim password As String = TextBox4.Text
+            Dim note As String = TextBox5.Text
+
+            ' Insert new account into the database
+            If InsertNewAccount(accountName, website, username, password, note) Then
+                MessageBox.Show("Account added successfully!")
+                ' Close the form or perform additional actions as needed
+                Me.Close()
+            Else
+                MessageBox.Show("Error adding account. Please try again.")
+            End If
+        Else
+            MessageBox.Show("Please enter an account name.")
+        End If
+    End Sub
+
+    ' Function to insert a new account into the database
+    Private Function InsertNewAccount(accountName As String, website As String, username As String, password As String, note As String) As Boolean
+        Try
+            ' Use your connection string
+            Dim connectionString As String = "Data Source=DESKTOP-HILRCRM\SQLEXPRESS;Initial Catalog=loginsystem;Integrated Security=True;Encrypt=False"
+
+            Using connection As New SqlConnection(connectionString)
+                connection.Open()
+
+                ' Use a parameterized query to prevent SQL injection
+                Dim query As String = "INSERT INTO Accounts (UserID, AccountName, Website, Username, PasswordHash, Note) " &
+                                      "VALUES (@UserID, @AccountName, @Website, @Username, @PasswordHash, @Note)"
+                Using command As New SqlCommand(query, connection)
+                    command.Parameters.AddWithValue("@UserID", userID)
+                    command.Parameters.AddWithValue("@AccountName", accountName)
+                    command.Parameters.AddWithValue("@Website", website)
+                    command.Parameters.AddWithValue("@Username", username)
+                    ' Hash the password before storing it
+                    command.Parameters.AddWithValue("@PasswordHash", FuncCls.EncryptPassword(password))
+                    command.Parameters.AddWithValue("@Note", note)
+
+                    ' Execute the query
+                    command.ExecuteNonQuery()
+
+                    Return True ' Operation successful
+                End Using
+            End Using
+        Catch ex As Exception
+            ' Log or handle the exception as needed
+            MessageBox.Show($"Error adding account. {ex.Message}")
+            Return False ' Operation failed
+        End Try
+    End Function
+
+    Private Sub CheckBox1_CheckedChanged(sender As Object, e As EventArgs) Handles CheckBox1.CheckedChanged
+        TextBox4.UseSystemPasswordChar = Not CheckBox1.Checked
+    End Sub
+End Class
+
+form 5
+Imports System.Data.SqlClient
+
+Public Class EditForm
+    Private ReadOnly userID As Integer
+    Private ReadOnly accountDetails As AccountDetails
+
+    ' Constructor to receive the user ID and account details
+    Public Sub New(authenticatedUserID As Integer, accountDetails As AccountDetails)
+        InitializeComponent()
+        userID = authenticatedUserID
+        Me.accountDetails = accountDetails
+    End Sub
+
+    Private Sub EditForm_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+        ' Display the existing account details in respective TextBoxes
+        TextBox1.Text = accountDetails.AccountName
+        TextBox2.Text = accountDetails.Website
+        TextBox3.Text = accountDetails.Username
+        TextBox4.Text = accountDetails.Note
+    End Sub
+
+    ' Update operation when Button1 (Update) is clicked
+    Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+        ' Validate that required fields are not empty
+        If Not String.IsNullOrWhiteSpace(TextBox1.Text) Then
+            ' Get values from the form controls
+            Dim accountName As String = TextBox1.Text
+            Dim website As String = TextBox2.Text
+            Dim username As String = TextBox3.Text
+            Dim note As String = TextBox4.Text
+
+            ' Update the existing account in the database
+            If UpdateAccountDetails(accountDetails.AccountID, accountName, website, username, note) Then
+                MessageBox.Show("Account updated successfully!")
+                ' Close the form or perform additional actions as needed
+                Me.Close()
+            Else
+                MessageBox.Show("Error updating account. Please try again.")
+            End If
+        Else
+            MessageBox.Show("Please enter an account name.")
+        End If
+    End Sub
+
+    ' Function to update an existing account in the database
+    Private Function UpdateAccountDetails(accountID As Integer, accountName As String, website As String, username As String, note As String) As Boolean
+        Try
+            ' Use your connection string
+            Dim connectionString As String = "Data Source=DESKTOP-HILRCRM\SQLEXPRESS;Initial Catalog=loginsystem;Integrated Security=True;Encrypt=False"
+
+            Using connection As New SqlConnection(connectionString)
+                connection.Open()
+
+                ' Begin a transaction
+                Using transaction As SqlTransaction = connection.BeginTransaction()
+                    Try
+                        MessageBox.Show("Executing query...")
+                        ' Use a parameterized query to prevent SQL injection
+                        Dim query As String = "UPDATE Accounts SET AccountName = @AccountName, Website = @Website, Username = @Username, Note = @Note WHERE AccountID = @AccountID"
+
+                        Using command As New SqlCommand(query, connection, transaction)
+                            command.Parameters.AddWithValue("@AccountID", accountID)
+                            command.Parameters.AddWithValue("@AccountName", accountName)
+                            command.Parameters.AddWithValue("@Website", website)
+                            command.Parameters.AddWithValue("@Username", username)
+                            command.Parameters.AddWithValue("@Note", note)
+
+                            ' Execute the query
+                            command.ExecuteNonQuery()
+
+                            ' Commit the transaction
+                            transaction.Commit()
+
+                            Return True ' Operation successful
+                        End Using
+                    Catch ex As Exception
+                        ' Rollback the transaction on error
+                        transaction.Rollback()
+                        MessageBox.Show($"Error updating account. {ex.ToString()}")
+                        Return False ' Operation failed
+                    End Try
+                End Using
+            End Using
+        Catch ex As Exception
+            ' Log or handle the exception as needed
+            MessageBox.Show($"Error updating account. {ex.ToString()}")
+            Return False ' Operation failed
+        End Try
+    End Function
+
+End Class
+
+ Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+     SearchAccount()
+ End Sub
+
+ Private Sub SearchAccount()
+     Dim enteredAccountName As String = TextBox1.Text.Trim()
+
+     If String.IsNullOrWhiteSpace(enteredAccountName) Then
+         MessageBox.Show("Please enter an account name.")
+         Return
+     End If
+
+     Dim account As AccountDetails = dataAccess.GetAccountDetails(userID, enteredAccountName)
+
+     If account IsNot Nothing Then
+         TextBox2.Text = account.Website
+         TextBox3.Text = account.Username
+         TextBox4.Text = FuncCls.DecryptPassword(account.PasswordHash)
+         TextBox5.Text = account.Note
+     Else
+         MessageBox.Show("Account not found.")
+     End If
+ End Sub
